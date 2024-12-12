@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/ubiquity-os-marketplace/text-conversation-rewards/compare/v1.2.0...v1.2.1) (2024-12-12)
+
+
+### Bug Fixes
+
+* ignore limit for assigned users ([377e8f2](https://github.com/ubiquity-os-marketplace/text-conversation-rewards/commit/377e8f2c3981083aa6b0f59f85bc10108b309825))
+* remove unnecessary mock in favour of mocked api endpoint ([a5d16a2](https://github.com/ubiquity-os-marketplace/text-conversation-rewards/commit/a5d16a2beaca73d2b9978ee7f0cd59fbb7d5407f))
+
 ## [1.2.0](https://github.com/ubiquity-os-marketplace/text-conversation-rewards/compare/v1.1.0...v1.2.0) (2024-11-30)
 
 
