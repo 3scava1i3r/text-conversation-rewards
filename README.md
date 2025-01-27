@@ -88,6 +88,7 @@ with:
       openAi:
         model: "gpt-4o"
         endpoint: "https://api.openai.com/v1"
+        tokenCountLimit: 124000
       multipliers:
         - role: [ISSUE_SPECIFICATION]
           relevance: 1
@@ -103,6 +104,9 @@ with:
       redeemTask: true
     dataPurge:
       skipCommentsWhileAssigned: all
+    reviewIncentivizer:
+      baseRate: 100
+      conclusiveReviewCredit: 25
     formattingEvaluator:
       wordCountExponent: 0.85
       multipliers:

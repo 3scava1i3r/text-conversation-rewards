@@ -2,6 +2,7 @@
   "name": "Conversation rewards",
   "description": "Generate rewards for on topic conversation for closing issues as complete.",
   "ubiquity:listeners": ["issues.closed"],
+  "skipBotEvents": false,
   "configuration": {
     "default": {},
     "type": "object",
@@ -60,6 +61,12 @@
                         "description": "OpenAI model, e.g. gpt-4o",
                         "examples": ["gpt-4o"],
                         "type": "string"
+                      },
+                      "tokenCountLimit": {
+                        "default": 124000,
+                        "description": "Token count limit for a given model. If the content goes beyond the token limit, content will get truncated during evaluation.",
+                        "examples": [124000],
+                        "type": "integer"
                       },
                       "endpoint": {
                         "default": "https://api.openai.com/v1",
@@ -309,6 +316,30 @@
                         "type": "string"
                       }
                     ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewIncentivizer": {
+            "default": null,
+            "anyOf": [
+              {
+                "default": {},
+                "type": "object",
+                "properties": {
+                  "baseRate": {
+                    "default": 100,
+                    "description": "Number of lines of code that equals $1 in review credit",
+                    "type": "number"
+                  },
+                  "conclusiveReviewCredit": {
+                    "default": 25,
+                    "description": "Flat rate bonus in dollars for completing a conclusive review i.e (Approved or Changes Requested)",
+                    "type": "number"
                   }
                 }
               },

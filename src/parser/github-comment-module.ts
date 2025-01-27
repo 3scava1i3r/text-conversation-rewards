@@ -15,7 +15,7 @@ import { removeKeyFromObject, typeReplacer } from "../helpers/result-replacer";
 import { getErc20TokenSymbol } from "../helpers/web3";
 import { IssueActivity } from "../issue-activity";
 import { BaseModule } from "../types/module";
-import { GithubCommentScore, Result } from "../types/results";
+import { GithubCommentScore, Result, ReviewScore } from "../types/results";
 
 interface SortedTasks {
   issues: { specification: GithubCommentScore | null; comments: GithubCommentScore[] };
@@ -28,11 +28,6 @@ interface SortedTasks {
 export class GithubCommentModule extends BaseModule {
   private readonly _configuration: GithubCommentConfiguration | null = this.context.config.incentives.githubComment;
   private readonly _debugFilePath = "./output.html";
-  /**
-   * COMMENT_ID can be set in the environment to reference the id of the last comment created during this workflow.
-   * See also compute.yml to understand how it is set.
-   */
-  private _lastCommentId: number | null = process.env.COMMENT_ID ? Number(process.env.COMMENT_ID) : null;
 
   /**
    * Ensures that a string containing special characters get HTML encoded.
@@ -117,7 +112,7 @@ export class GithubCommentModule extends BaseModule {
     if (this._configuration?.post) {
       try {
         if (Object.values(result).some((v) => v.permitUrl) || isIssueCollaborative || isUserAdmin) {
-          await this.postComment(body);
+          await postComment(this.context, this.context.logger.info(body), { raw: true, updateComment: true });
         } else {
           const errorLog = this.context.logger.error("Issue is non-collaborative. Skipping permit generation.");
           await postComment(this.context, errorLog);
@@ -137,42 +132,8 @@ export class GithubCommentModule extends BaseModule {
     return true;
   }
 
-  async postComment(body: string, updateLastComment = true) {
-    const { payload, logger } = this.context;
-    if (!this._configuration?.post) {
-      logger.debug("Won't post a comment since posting is disabled.", { body });
-      return;
-    }
-    if (updateLastComment && this._lastCommentId !== null) {
-      await this.context.octokit.rest.issues.updateComment({
-        body,
-        repo: payload.repository.name,
-        owner: payload.repository.owner.login,
-        issue_number: payload.issue.number,
-        comment_id: this._lastCommentId,
-      });
-    } else {
-      const comment = await this.context.octokit.rest.issues.createComment({
-        body,
-        repo: payload.repository.name,
-        owner: payload.repository.owner.login,
-        issue_number: payload.issue.number,
-      });
-      this._lastCommentId = comment.data.id;
-    }
-  }
-
   _createContributionRows(result: Result[0], sortedTasks: SortedTasks | undefined) {
     const content: string[] = [];
-
-    if (result.task?.reward) {
-      content.push(buildContributionRow("Issue", "Task", result.task.multiplier, result.task.reward));
-    }
-
-    if (!sortedTasks) {
-      return content.join("");
-    }
-
     function buildContributionRow(
       view: string,
       contribution: string,
@@ -186,6 +147,48 @@ export class GithubCommentModule extends BaseModule {
             <td>${count}</td>
             <td>${reward || "-"}</td>
           </tr>`;
+    }
+
+    if (result.task?.reward) {
+      content.push(buildContributionRow("Issue", "Task", result.task.multiplier, result.task.reward));
+    }
+
+    if (result.reviewRewards) {
+      result.reviewRewards.forEach((reviewReward) => {
+        const reviewRewardPullNumber = reviewReward.url.split("/").slice(-1)[0];
+        if (reviewReward.reviewBaseReward?.reward) {
+          content.push(
+            buildContributionRow(
+              "Review",
+              `Base Review for&nbsp;<a href="${reviewReward.url}" target="_blank" rel="noopener">#${reviewRewardPullNumber}</a>`,
+              1,
+              reviewReward.reviewBaseReward?.reward
+            )
+          );
+        }
+      });
+
+      const reviewCount = result.reviewRewards.reduce(
+        (total, reviewReward) => total + (reviewReward.reviews?.length ?? 0),
+        0
+      );
+
+      const totalReviewReward = result.reviewRewards.reduce(
+        (sum, reviewReward) =>
+          sum.add(
+            reviewReward.reviews?.reduce((subSum, review) => subSum.add(review.reward), new Decimal(0)) ??
+              new Decimal(0)
+          ),
+        new Decimal(0)
+      );
+
+      if (reviewCount > 0) {
+        content.push(buildContributionRow("Review", "Code Review", reviewCount, totalReviewReward.toNumber()));
+      }
+    }
+
+    if (!sortedTasks) {
+      return content.join("");
     }
 
     if (sortedTasks.issues.specification) {
@@ -266,6 +269,43 @@ export class GithubCommentModule extends BaseModule {
     return content.join("");
   }
 
+  _createReviewRows(result: Result[0]) {
+    if (result.reviewRewards?.every((reviewReward) => reviewReward.reviews?.length === 0) || !result.reviewRewards) {
+      return "";
+    }
+
+    function buildReviewRow(review: ReviewScore) {
+      return `
+        <tr>
+          <td>+${review.effect.addition} -${review.effect.deletion}</td>
+          <td>${review.priority ?? "-"}</td>
+          <td>${review.reward}</td>
+        </tr>`;
+    }
+
+    const reviewTables = result.reviewRewards
+      .filter((reviewReward) => reviewReward.reviews && reviewReward.reviews.length > 0)
+      .map((reviewReward) => {
+        const rows = reviewReward.reviews?.map(buildReviewRow).join("") ?? "";
+        return `
+          <h6>Review Details for&nbsp;<a href="${reviewReward.url}" target="_blank" rel="noopener">#${reviewReward.url.split("/").slice(-1)[0]}</a></h6>
+          <table>
+            <thead>
+              <tr>
+                <th>Changes</th>
+                <th>Priority</th>
+                <th>Reward</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>`;
+      })
+      .join("");
+
+    return reviewTables;
+  }
   async _generateHtml(username: string, result: Result[0], taskReward: number, stripComments = false) {
     const sortedTasks = result.comments?.reduce<SortedTasks>(
       (acc, curr) => {
@@ -291,7 +331,6 @@ export class GithubCommentModule extends BaseModule {
     const rewardsSum =
       result.comments?.reduce<Decimal>((acc, curr) => acc.add(curr.score?.reward ?? 0), new Decimal(0)) ??
       new Decimal(0);
-    // The task reward can be 0 if either there is no pricing tag or if there is no assignee
     const isCapped = taskReward > 0 && rewardsSum.gt(taskReward);
 
     return `
@@ -326,6 +365,7 @@ export class GithubCommentModule extends BaseModule {
           ${this._createContributionRows(result, sortedTasks)}
         </tbody>
       </table>
+      ${!stripComments ? this._createReviewRows(result) : ""}
       ${
         !stripComments
           ? `<h6>Conversation Incentives</h6>
